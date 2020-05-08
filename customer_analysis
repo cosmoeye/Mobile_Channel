@@ -1,0 +1,97 @@
+# CM채널 고객 데이터분석
+## Data Import & Preprocessing
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+raw = pd.read_csv('path from os.getcwd()',encoding = 'euc-kr')
+raw = raw.drop(['계약자우편수신처지역명(V1)','계약자직장주소지역명(V1)','계약자자택주소지역명(V1)','청약번호(V3)'],axis=1)
+raw.columns = ['상품명','증권번호','계약상태','고객번호','청약일자','성명','연령','성별','재직자여부','직업','초회수금방법',
+               'SMS수신동의여부','이메일수신동의여부','우편수신동의여부','승환계약보유여부','거주지','유입경로']  # column 순서 재조정
+
+# 전처리를 위한 trimming 함수 building
+def trim(x,y):
+    lst_before = list(x)
+    lst_after = []
+    for x in lst_before:
+        x = x[y:]
+        lst_after.append(x)
+    return lst_after
+
+# 잘라야되는 글자수만큼 각 column에 y 인자 할당
+raw['계약상태'] = trim(raw['계약상태'],4)
+raw['성별'] = trim(raw['성별'],4)
+raw['재직자여부'] = trim(raw['재직자여부'],4)
+raw['초회수금방법'] = trim(raw['초회수금방법'],4)
+raw['거주지'] = trim(raw['거주지'],4)
+
+raw['SMS수신동의여부'] = trim(raw['SMS수신동의여부'],3)
+raw['우편수신동의여부'] = trim(raw['우편수신동의여부'],3)
+raw['승환계약보유여부'] = trim(raw['승환계약보유여부'],3)
+raw['이메일수신동의여부'] = trim(raw['이메일수신동의여부'],3)
+
+raw['청약년월'] = trim(raw['청약일자'].astype(str),6)
+
+data = raw
+
+# 내부관계자 제외(고객번호 기준)
+related_list = [a,b,c,d,...]
+related_idx = data[data['고객번호'].isin(related_list)].index
+
+data.drop(related_idx,inplace=True)
+
+# 전체고객성비
+stat_sex_all = data.groupby('성별').agg({'고객번호':'nunique'})
+stat_sex_all.rename(columns = {'고객번호':'총_고객수'},inplace=True)
+stat_sex_all
+
+# 상품별 성비
+data_bone = data.query('상품명 == "무배당 오렌지 365뼈펙트 상해보험M"')
+data_bone_mini = data.query('상품명 == "무배당 오렌지 뼈펙트 상해보험mini"')
+data_cancer = data.query('상품명 == "무배당 오렌지 암 파인 암보험M"')
+
+stat_sex_bone = data_bone.groupby('성별').agg({'고객번호':'nunique'})
+stat_sex_bone.rename(columns = {'고객번호':'365뼈펙트_고객수'},inplace=True)
+stat_sex_bone
+
+stat_sex_bone_mini = data_bone.groupby('성별').agg({'고객번호':'nunique'})
+stat_sex_bone_mini.rename(columns = {'고객번호':'뼈펙트mini_고객수'},inplace=True)
+print(stat_sex_bone_mini)
+
+stat_sex_cancer = data_bone.groupby('성별').agg({'고객번호':'nunique'})
+stat_sex_cancer.rename(columns = {'고객번호':'암파인_고객수'},inplace=True)
+stat_sex_cancer
+
+# 월별 유입경로별 계약 수
+data['유입경로'].replace(['CJONE','GOTO','OCB','SYRUP','TMON'],'mini제휴처',inplace=True)  # mini제휴처를 한개로 묶음
+data.groupby(['청약년월','유입경로']).agg({'증권번호':'nunique'}).unstack().fillna(0)
+
+# 다건 고객
+duplicated_cust_id = data[data.duplicated(['고객번호'])==True].고객번호
+
+multi_data = data[data['고객번호'].isin(list(duplicated_cust_id.values))]
+multi_data.sort_value(by='고객번호',inplace = True)
+
+# 다건 고객의 계약 채널 확인
+# dummy 변수화
+data['CM채널'] = np.where(data['판매채널']=='CM',1,0)
+data['TA채널'] = np.where(data['판매채널']=='TA',1,0)
+data['DS채널'] = np.where(data['판매채널']=='DS',1,0)
+data['본사채널'] = np.where(data['판매채널']=='본사',1,0)
+
+# 고객번호 기준으로 single view
+list1 = list(data['증권번호'])
+list2 = list(data['고객번호'])
+list3 = list(data['CM채널'])
+list4 = list(data['DS채널'])
+list5 = list(data['TA채널'])
+list6 = list(data['본사채널'])
+
+data_pivot = pd.DataFrame({'증권번호':list1,'고객번호':list2,'CM채널':list3,'TA채널':list4,'DS채널':list5,'본사채널':list6})
+data_single_view = data_pivot.groupby('고객번호')['CM채널','TA채널','DS채널','본사채널'].sum()
+
+# 각 채널별 계약 건
+data_CM_only = data_all[(data_all['CM채널']>0)&(data_all['TA채널']==0)&(data_all['DS채널']==0)&(data_all['본사채널']==0)]
+data_CM_only = data_CM_only.reset_index()
